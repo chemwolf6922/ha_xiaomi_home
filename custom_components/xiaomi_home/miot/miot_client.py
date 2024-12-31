@@ -164,9 +164,11 @@ class MIoTClient:
     _refresh_props_retry_count: int
 
     # Persistence notify handler, params: notify_id, title, message
-    _persistence_notify: Callable[[str, str, str], None]
+    _persistence_notify: Callable[[str, Optional[str], Optional[str]], None]
     # Device list changed notify
     _show_devices_changed_notify_timer: Optional[asyncio.TimerHandle]
+    # Display devices changed notify
+    _display_devs_notify: list[str]
 
     def __init__(
             self,
@@ -231,6 +233,9 @@ class MIoTClient:
         self._persistence_notify = None
         self._show_devices_changed_notify_timer = None
 
+        self._display_devs_notify = entry_data.get(
+            'display_devices_changed_notify', ['add', 'del', 'offline'])
+
     async def init_async(self) -> None:
         # Load user config and check
         self._user_config = await self._storage.load_user_config_async(
@@ -239,14 +244,14 @@ class MIoTClient:
             # Integration need to be add again
             raise MIoTClientError('load_user_config_async error')
         _LOGGER.debug('user config, %s', json.dumps(self._user_config))
-        # Load cache device list
-        await self.__load_cache_device_async()
         # MIoT i18n client
         self._i18n = MIoTI18n(
             lang=self._entry_data.get(
                 'integration_language', DEFAULT_INTEGRATION_LANGUAGE),
             loop=self._main_loop)
         await self._i18n.init_async()
+        # Load cache device list
+        await self.__load_cache_device_async()
         # MIoT oauth client instance
         self._oauth = MIoTOauthClient(
             client_id=OAUTH2_CLIENT_ID,
@@ -458,6 +463,21 @@ class MIoTClient:
     def hide_non_standard_entities(self) -> bool:
         return self._entry_data.get(
             'hide_non_standard_entities', False)
+
+    @property
+    def display_devices_changed_notify(self) -> list[str]:
+        return self._display_devs_notify
+
+    @display_devices_changed_notify.setter
+    def display_devices_changed_notify(self, value: list[str]) -> None:
+        if set(value) == set(self._display_devs_notify):
+            return
+        self._display_devs_notify = value
+        if value:
+            self.__request_show_devices_changed_notify()
+        else:
+            self._persistence_notify(
+                self.__gen_notify_key('dev_list_changed'), None, None)
 
     @property
     def device_list(self) -> dict:
@@ -1069,7 +1089,7 @@ class MIoTClient:
                 handler=self.__on_lan_device_state_changed)
             for did, info in (
                     await self._miot_lan.get_dev_list_async()).items():
-                self.__on_lan_device_state_changed(
+                await self.__on_lan_device_state_changed(
                     did=did, state=info, ctx=None)
             _LOGGER.info('lan device list, %s', self._device_list_lan)
             self._miot_lan.update_devices(devices={
@@ -1538,7 +1558,7 @@ class MIoTClient:
                     None)
                 self.__on_prop_msg(params=result, ctx=None)
             if request_list:
-                _LOGGER.error(
+                _LOGGER.info(
                     'refresh props failed, cloud, %s',
                     list(request_list.keys()))
                 request_list = None
@@ -1594,7 +1614,7 @@ class MIoTClient:
             succeed_once = True
         if succeed_once:
             return True
-        _LOGGER.error(
+        _LOGGER.info(
             'refresh props failed, gw, %s', list(request_list.keys()))
         # Add failed request back to the list
         self._refresh_props_list.update(request_list)
@@ -1637,7 +1657,7 @@ class MIoTClient:
             succeed_once = True
         if succeed_once:
             return True
-        _LOGGER.error(
+        _LOGGER.info(
             'refresh props failed, lan, %s', list(request_list.keys()))
         # Add failed request back to the list
         self._refresh_props_list.update(request_list)
@@ -1669,10 +1689,10 @@ class MIoTClient:
             if self._refresh_props_timer:
                 self._refresh_props_timer.cancel()
                 self._refresh_props_timer = None
-            _LOGGER.error('refresh props failed, retry count exceed')
+            _LOGGER.info('refresh props failed, retry count exceed')
             return
         self._refresh_props_retry_count += 1
-        _LOGGER.error(
+        _LOGGER.info(
             'refresh props failed, retry, %s', self._refresh_props_retry_count)
         self._refresh_props_timer = self._main_loop.call_later(
             3, lambda: self._main_loop.create_task(
@@ -1716,15 +1736,16 @@ class MIoTClient:
         count_offline: int = 0
 
         # New devices
-        for did, info in {
-                **self._device_list_gateway, **self._device_list_cloud
-        }.items():
-            if did in self._device_list_cache:
-                continue
-            count_add += 1
-            message_add += (
-                f'- {info.get("name", "unknown")} ({did}, '
-                f'{info.get("model", "unknown")})\n')
+        if 'add' in self._display_devs_notify:
+            for did, info in {
+                    **self._device_list_gateway, **self._device_list_cloud
+            }.items():
+                if did in self._device_list_cache:
+                    continue
+                count_add += 1
+                message_add += (
+                    f'- {info.get("name", "unknown")} ({did}, '
+                    f'{info.get("model", "unknown")})\n')
         # Get unavailable and offline devices
         home_name_del: Optional[str] = None
         home_name_offline: Optional[str] = None
@@ -1734,7 +1755,7 @@ class MIoTClient:
             if online:
                 # Skip online device
                 continue
-            if online is None:
+            if 'del' in self._display_devs_notify and online is None:
                 # Device not exist
                 if home_name_del != home_name_new:
                     message_del += f'\n[{home_name_new}]\n'
@@ -1743,7 +1764,8 @@ class MIoTClient:
                 message_del += (
                     f'- {info.get("name", "unknown")} ({did}, '
                     f'{info.get("room_name", "unknown")})\n')
-            else:
+                continue
+            if 'offline' in self._display_devs_notify:
                 # Device offline
                 if home_name_offline != home_name_new:
                     message_offline += f'\n[{home_name_new}]\n'
@@ -1754,19 +1776,19 @@ class MIoTClient:
                     f'{info.get("room_name", "unknown")})\n')
 
         message = ''
-        if count_add:
+        if 'add' in self._display_devs_notify and count_add:
             message += self._i18n.translate(
                 key='miot.client.device_list_add',
                 replace={
                     'count': count_add,
                     'message': message_add})
-        if count_del:
+        if 'del' in self._display_devs_notify and count_del:
             message += self._i18n.translate(
                 key='miot.client.device_list_del',
                 replace={
                     'count': count_del,
                     'message': message_del})
-        if count_offline:
+        if 'offline' in self._display_devs_notify and count_offline:
             message += self._i18n.translate(
                 key='miot.client.device_list_offline',
                 replace={
@@ -1801,6 +1823,8 @@ class MIoTClient:
     def __request_show_devices_changed_notify(
         self, delay_sec: float = 6
     ) -> None:
+        if not self._display_devs_notify:
+            return
         if not self._mips_cloud and not self._mips_local and not self._miot_lan:
             return
         if self._show_devices_changed_notify_timer:
@@ -1827,15 +1851,6 @@ async def get_miot_instance_async(
         loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
         if loop is None:
             raise MIoTClientError('loop is None')
-        # MIoT network
-        network: Optional[MIoTNetwork] = hass.data[DOMAIN].get(
-            'miot_network', None)
-        if not network:
-            network = MIoTNetwork(loop=loop)
-            hass.data[DOMAIN]['miot_network'] = network
-            await network.init_async(
-                refresh_interval=NETWORK_REFRESH_INTERVAL)
-            _LOGGER.info('create miot_network instance')
         # MIoT storage
         storage: Optional[MIoTStorage] = hass.data[DOMAIN].get(
             'miot_storage', None)
@@ -1844,12 +1859,29 @@ async def get_miot_instance_async(
                 root_path=entry_data['storage_path'], loop=loop)
             hass.data[DOMAIN]['miot_storage'] = storage
             _LOGGER.info('create miot_storage instance')
+        global_config: dict = await storage.load_user_config_async(
+            uid='global_config', cloud_server='all',
+            keys=['network_detect_addr', 'net_interfaces', 'enable_subscribe'])
+        # MIoT network
+        network_detect_addr: dict = global_config.get(
+            'network_detect_addr', {})
+        network: Optional[MIoTNetwork] = hass.data[DOMAIN].get(
+            'miot_network', None)
+        if not network:
+            network = MIoTNetwork(
+                ip_addr_list=network_detect_addr.get('ip', []),
+                url_addr_list=network_detect_addr.get('url', []),
+                refresh_interval=NETWORK_REFRESH_INTERVAL,
+                loop=loop)
+            hass.data[DOMAIN]['miot_network'] = network
+            await network.init_async()
+            _LOGGER.info('create miot_network instance')
         # MIoT service
         mips_service: Optional[MipsService] = hass.data[DOMAIN].get(
             'mips_service', None)
         if not mips_service:
             aiozc = await zeroconf.async_get_async_instance(hass)
-            mips_service: MipsService = MipsService(aiozc=aiozc, loop=loop)
+            mips_service = MipsService(aiozc=aiozc, loop=loop)
             hass.data[DOMAIN]['mips_service'] = mips_service
             await mips_service.init_async()
             _LOGGER.info('create mips_service instance')
@@ -1857,15 +1889,11 @@ async def get_miot_instance_async(
         miot_lan: Optional[MIoTLan] = hass.data[DOMAIN].get(
             'miot_lan', None)
         if not miot_lan:
-            lan_config = (await storage.load_user_config_async(
-                uid='global_config',
-                cloud_server='all',
-                keys=['net_interfaces', 'enable_subscribe'])) or {}
             miot_lan = MIoTLan(
-                net_ifs=lan_config.get('net_interfaces', []),
+                net_ifs=global_config.get('net_interfaces', []),
                 network=network,
                 mips_service=mips_service,
-                enable_subscribe=lan_config.get('enable_subscribe', False),
+                enable_subscribe=global_config.get('enable_subscribe', False),
                 loop=loop)
             hass.data[DOMAIN]['miot_lan'] = miot_lan
             _LOGGER.info('create miot_lan instance')
