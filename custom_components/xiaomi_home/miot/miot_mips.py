@@ -85,9 +85,9 @@ class _MipsMsgTypeOptions(Enum):
 class _MipsMessage:
     """MIoT Pub/Sub message."""
     mid: int = 0
-    msg_from: str | None = None
-    ret_topic: str | None = None
-    payload: str | None = None
+    msg_from: Optional[str] = None
+    ret_topic: Optional[str] = None
+    payload: Optional[str] = None
 
     @staticmethod
     def unpack(data: bytes) -> '_MipsMessage':
@@ -122,8 +122,8 @@ class _MipsMessage:
     def pack(
         mid: int,
         payload: str,
-        msg_from: str | None = None,
-        ret_topic: str | None = None
+        msg_from: Optional[str] = None,
+        ret_topic: Optional[str] = None
     ) -> bytes:
         if mid is None or payload is None:
             raise MIoTMipsError('invalid mid or payload')
@@ -159,7 +159,7 @@ class _MipsRequest:
     mid: int
     on_reply: Callable[[str, Any], None]
     on_reply_ctx: Any
-    timer: asyncio.TimerHandle | None
+    timer: Optional[asyncio.TimerHandle]
 
 
 @dataclass
@@ -199,13 +199,13 @@ class MIoTDeviceState(Enum):
 @dataclass
 class MipsDeviceState:
     """MIoT Pub/Sub device state."""
-    did: str | None = None
+    did: Optional[str] = None
     """handler
     str: did
     MIoTDeviceState: online/offline/disable
     Any: ctx
     """
-    handler: Callable[[str, MIoTDeviceState, Any], None] | None = None
+    handler: Optional[Callable[[str, MIoTDeviceState, Any], None]] = None
     handler_ctx: Any = None
 
 
@@ -220,26 +220,26 @@ class _MipsClient(ABC):
     MIPS_SUB_PATCH: int = 300
     MIPS_SUB_INTERVAL: float = 1
     main_loop: asyncio.AbstractEventLoop
-    _logger: logging.Logger | None
+    _logger: Optional[logging.Logger]
     _client_id: str
     _host: str
     _port: int
-    _username: str | None
-    _password: str | None
-    _ca_file: str | None
-    _cert_file: str | None
-    _key_file: str | None
+    _username: Optional[str]
+    _password: Optional[str]
+    _ca_file: Optional[str]
+    _cert_file: Optional[str]
+    _key_file: Optional[str]
 
-    _mqtt_logger: logging.Logger | None
+    _mqtt_logger: Optional[logging.Logger]
     _mqtt: Client
     _mqtt_fd: int
-    _mqtt_timer: asyncio.TimerHandle | None
+    _mqtt_timer: Optional[asyncio.TimerHandle]
     _mqtt_state: bool
 
     _event_connect: asyncio.Event
     _event_disconnect: asyncio.Event
     _internal_loop: asyncio.AbstractEventLoop
-    _mips_thread: threading.Thread | None = None
+    _mips_thread: Optional[threading.Thread]
     _mips_reconnect_tag: bool
     _mips_reconnect_interval: float
     _mips_reconnect_timer: Optional[asyncio.TimerHandle]
@@ -284,6 +284,7 @@ class _MipsClient(ABC):
         # Mips init
         self._event_connect = asyncio.Event()
         self._event_disconnect = asyncio.Event()
+        self._mips_thread = None
         self._mips_reconnect_tag = False
         self._mips_reconnect_interval = 0
         self._mips_reconnect_timer = None
@@ -1056,8 +1057,8 @@ class MipsLocalClient(_MipsClient):
     _request_map: dict[str, _MipsRequest]
     _msg_matcher: MIoTMatcher
     _get_prop_queue: dict[str, list]
-    _get_prop_timer: asyncio.TimerHandle | None
-    _on_dev_list_changed: Callable[[Any, list[str]], Coroutine] | None
+    _get_prop_timer: Optional[asyncio.TimerHandle]
+    _on_dev_list_changed: Optional[Callable[[Any, list[str]], Coroutine]]
 
     def __init__(
         self, did: str, host: str, group_id: str,
@@ -1365,7 +1366,7 @@ class MipsLocalClient(_MipsClient):
     @property
     def on_dev_list_changed(
         self
-    ) -> Callable[[Any, list[str]], Coroutine] | None:
+    ) -> Optional[Callable[[Any, list[str]], Coroutine]]:
         return self._on_dev_list_changed
 
     @final
@@ -1454,7 +1455,7 @@ class MipsLocalClient(_MipsClient):
         # Reply
         if topic == self._reply_topic:
             self.log_debug(f'on request reply, {mips_msg}')
-            req: _MipsRequest | None = self._request_map.pop(
+            req: Optional[_MipsRequest] = self._request_map.pop(
                 str(mips_msg.mid), None)
             if req:
                 # Cancel timer
