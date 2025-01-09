@@ -250,8 +250,8 @@ class _MipsClient(ABC):
 
     def __init__(
             self,
-            client_id:
-            str, host: str,
+            client_id: str,
+            host: str,
             port: int,
             username: Optional[str] = None,
             password: Optional[str] = None,
@@ -624,8 +624,10 @@ class _MipsClient(ABC):
                     self.main_loop.create_task,
                     item.handler(item.key, True))
         # Resolve future
-        self._event_connect.set()
-        self._event_disconnect.clear()
+        self.main_loop.call_soon_threadsafe(
+            self._event_connect.set)
+        self.main_loop.call_soon_threadsafe(
+            self._event_disconnect.clear)
 
     def __on_connect_failed(self, client: Client, user_data: Any) -> None:
         self.log_error('mips connect failed')
@@ -662,8 +664,10 @@ class _MipsClient(ABC):
         # Try to reconnect
         self.__mips_try_reconnect()
         # Set event
-        self._event_disconnect.set()
-        self._event_connect.clear()
+        self.main_loop.call_soon_threadsafe(
+            self._event_disconnect.set)
+        self.main_loop.call_soon_threadsafe(
+            self._event_connect.clear)
 
     def __on_message(
         self,
