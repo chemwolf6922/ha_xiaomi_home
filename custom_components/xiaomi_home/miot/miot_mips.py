@@ -162,7 +162,6 @@ class _MipsRequest:
     timer: asyncio.TimerHandle | None
 
 
-
 @dataclass
 class _MipsBroadcast:
     """MIoT Pub/Sub broadcast."""
@@ -196,6 +195,7 @@ class MIoTDeviceState(Enum):
     OFFLINE = auto()
     ONLINE = auto()
 
+
 @dataclass
 class MipsDeviceState:
     """MIoT Pub/Sub device state."""
@@ -207,6 +207,7 @@ class MipsDeviceState:
     """
     handler: Callable[[str, MIoTDeviceState, Any], None] | None = None
     handler_ctx: Any = None
+
 
 class _MipsClient(ABC):
     """MIoT Pub/Sub client."""
@@ -292,7 +293,6 @@ class _MipsClient(ABC):
         self._mips_sub_pending_timer = None
         # DO NOT start the thread yet. Do that on connect
 
-
     @property
     def client_id(self) -> str:
         return self._client_id
@@ -323,8 +323,8 @@ class _MipsClient(ABC):
         self._internal_loop = asyncio.new_event_loop()
         self._mips_thread = threading.Thread(target=self.__mips_loop_thread)
         self._mips_thread.daemon = True
-        self._mips_thread.name = \
-            self._client_id if thread_name is None else thread_name
+        self._mips_thread.name = (
+            self._client_id if thread_name is None else thread_name)
         self._mips_thread.start()
 
     @final
@@ -476,13 +476,13 @@ class _MipsClient(ABC):
     ) -> dict: ...
 
     @abstractmethod
-    def _on_mips_message(self, topic: str, payload: bytes) -> None:...
+    def _on_mips_message(self, topic: str, payload: bytes) -> None: ...
 
     @abstractmethod
-    def _on_mips_connect(self, rc: int, props: dict) -> None:...
+    def _on_mips_connect(self, rc: int, props: dict) -> None: ...
 
     @abstractmethod
-    def _on_mips_disconnect(self, rc: int, props: dict) -> None:...
+    def _on_mips_disconnect(self, rc: int, props: dict) -> None: ...
 
     @final
     def _mips_sub_internal(self, topic: str) -> None:
@@ -626,7 +626,7 @@ class _MipsClient(ABC):
         self._event_connect.set()
         self._event_disconnect.clear()
 
-    def __on_connect_failed(self, client:Client, user_data:Any) -> None:
+    def __on_connect_failed(self, client: Client, user_data: Any) -> None:
         self.log_error('mips connect failed')
         # Try to reconnect
         self.__mips_try_reconnect()
@@ -1029,7 +1029,7 @@ class MipsCloudClient(_MipsClient):
         if not bc_list:
             return
         # The message from the cloud is not packed.
-        payload_str:str = payload.decode('utf-8')
+        payload_str: str = payload.decode('utf-8')
         # self.log_debug(f"on broadcast, {topic}, {payload}")
         for item in bc_list or []:
             if item.handler is None:
@@ -1440,7 +1440,7 @@ class MipsLocalClient(_MipsClient):
         # Sub broadcast topic
         for topic, _ in list(self._msg_matcher.iter_all_nodes()):
             self._mips_sub_internal(
-                topic=re.sub(f'^{self._did}', 'master', topic))\
+                topic=re.sub(f'^{self._did}', 'master', topic))
 
     @final
     def _on_mips_disconnect(self, rc: int, props: dict) -> None:
