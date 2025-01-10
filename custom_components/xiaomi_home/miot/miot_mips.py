@@ -229,6 +229,7 @@ class _MipsClient(ABC):
     _ca_file: Optional[str]
     _cert_file: Optional[str]
     _key_file: Optional[str]
+    _tls_done: bool
 
     _mqtt_logger: Optional[logging.Logger]
     _mqtt: Client
@@ -271,6 +272,7 @@ class _MipsClient(ABC):
         self._ca_file = ca_file
         self._cert_file = cert_file
         self._key_file = key_file
+        self._tls_done = False
 
         self._mqtt_logger = None
         self._mqtt_fd = -1
@@ -328,12 +330,28 @@ class _MipsClient(ABC):
             self._client_id if thread_name is None else thread_name)
         self._mips_thread.start()
 
-    @final
-    def close(self) -> None:
-        self._internal_loop.call_soon_threadsafe(self.__mips_close)
-        if self._mips_thread:
-            self._mips_thread.join()
+    async def connect_async(self) -> None:
+        """mips connect async."""
+        self.connect()
+        await self._event_connect.wait()
+
+    def disconnect(self) -> None:
+        """mips disconnect."""
+        if not self._mips_thread:
+            return
+        self._internal_loop.call_soon_threadsafe(self.__mips_disconnect)
+        self._mips_thread.join()
+        self._mips_thread = None
         self._internal_loop.close()
+
+    async def disconnect_async(self) -> None:
+        """mips disconnect async."""
+        self.disconnect()
+        await self._event_disconnect.wait()
+
+    @final
+    def deinit(self) -> None:
+        self.disconnect()
 
         self._logger = None
         self._username = None
@@ -341,6 +359,7 @@ class _MipsClient(ABC):
         self._ca_file = None
         self._cert_file = None
         self._key_file = None
+        self._tls_done = False
         self._mqtt_logger = None
         with self._mips_state_sub_map_lock:
             self._mips_state_sub_map.clear()
@@ -374,20 +393,6 @@ class _MipsClient(ABC):
             self._mqtt.enable_logger(logger=logger)
         else:
             self._mqtt.disable_logger()
-
-    async def connect_async(self) -> None:
-        """mips connect async."""
-        self.connect()
-        await self._event_connect.wait()
-
-    def disconnect(self) -> None:
-        """mips disconnect."""
-        self._internal_loop.call_soon_threadsafe(self.__mips_disconnect)
-
-    async def disconnect_async(self) -> None:
-        """mips disconnect async."""
-        self.disconnect()
-        await self._event_disconnect.wait()
 
     @final
     def sub_mips_state(
@@ -586,19 +591,21 @@ class _MipsClient(ABC):
         if self._username:
             self._mqtt.username_pw_set(
                 username=self._username, password=self._password)
-        if (
-            self._ca_file
-            and self._cert_file
-            and self._key_file
-        ):
-            self._mqtt.tls_set(
-                tls_version=ssl.PROTOCOL_TLS_CLIENT,
-                ca_certs=self._ca_file,
-                certfile=self._cert_file,
-                keyfile=self._key_file)
-        else:
-            self._mqtt.tls_set(tls_version=ssl.PROTOCOL_TLS_CLIENT)
-        self._mqtt.tls_insecure_set(True)
+        if not self._tls_done:
+            if (
+                self._ca_file
+                and self._cert_file
+                and self._key_file
+            ):
+                self._mqtt.tls_set(
+                    tls_version=ssl.PROTOCOL_TLS_CLIENT,
+                    ca_certs=self._ca_file,
+                    certfile=self._cert_file,
+                    keyfile=self._key_file)
+            else:
+                self._mqtt.tls_set(tls_version=ssl.PROTOCOL_TLS_CLIENT)
+            self._mqtt.tls_insecure_set(True)
+            self._tls_done = True
         self._mqtt.on_connect = self.__on_connect
         self._mqtt.on_connect_fail = self.__on_connect_failed
         self._mqtt.on_disconnect = self.__on_disconnect
@@ -776,10 +783,6 @@ class _MipsClient(ABC):
             self._internal_loop.remove_writer(self._mqtt_fd)
             self._mqtt_fd = -1
         self._mqtt.disconnect()
-
-    def __mips_close(self) -> None:
-        self.log_info('mips client closing')
-        self.__mips_disconnect()
         self._internal_loop.stop()
 
     def __get_next_reconnect_time(self) -> float:
