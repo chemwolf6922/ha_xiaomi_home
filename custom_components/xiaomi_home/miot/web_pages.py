@@ -46,13 +46,25 @@ off Xiaomi or its affiliates' products.
 MIoT redirect web pages.
 """
 
-template = ""
-def oauth_redirect_page(lang: str, status: str) -> str:
-    global template
-    if template == "":
-        with open("./resource/oauth_redirect_page.html", "r") as f:
-            template = f.read()
+import os
+import asyncio
+
+_template = ""
+
+def __load_page_template():
+    path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        'resource/oauth_redirect_page.html')
+    global _template
+    with open(path, "r") as f:
+        _template = f.read()
+
+async def oauth_redirect_page(lang: str, status: str) -> str:
     """Return oauth redirect page."""
-    web_page = template.replace('LANG_PLACEHOLDER', lang)
+    global template
+    if _template == "":
+        await asyncio.get_event_loop().run_in_executor(
+            None, __load_page_template)
+    web_page = _template.replace('LANG_PLACEHOLDER', lang)
     web_page = web_page.replace('STATUS_PLACEHOLDER', status)
     return web_page
