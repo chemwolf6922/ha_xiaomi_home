@@ -46,12 +46,12 @@ off Xiaomi or its affiliates' products.
 MIoT redirect web pages.
 """
 
-# preload the template
 template = ""
-with open("./resource/oauth_redirect_page.html", "r") as f:
-    template = f.read()
-
 def oauth_redirect_page(lang: str, status: str) -> str:
+    global template
+    if template == "":
+        with open("./resource/oauth_redirect_page.html", "r") as f:
+            template = f.read()
     """Return oauth redirect page."""
     web_page = template.replace('LANG_PLACEHOLDER', lang)
     web_page = web_page.replace('STATUS_PLACEHOLDER', status)
