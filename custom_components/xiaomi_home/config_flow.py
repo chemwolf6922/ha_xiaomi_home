@@ -1991,12 +1991,12 @@ async def _handle_oauth_webhook(hass, webhook_id, request):
         _LOGGER.info('webhook code: %s', data['code'])
 
         return web.Response(
-            body=oauth_redirect_page(
+            body=await oauth_redirect_page(
                 hass.config.language, 'success'), content_type='text/html')
 
     except MIoTConfigError:
         return web.Response(
-            body=oauth_redirect_page(hass.config.language, 'fail'),
+            body=await oauth_redirect_page(hass.config.language, 'fail'),
             content_type='text/html')
 
 
