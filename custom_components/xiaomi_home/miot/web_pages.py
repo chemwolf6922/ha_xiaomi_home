@@ -51,6 +51,7 @@ import asyncio
 
 _template = ""
 
+
 def _load_page_template():
     path = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
@@ -59,10 +60,11 @@ def _load_page_template():
         global _template
         _template = f.read()
 
+
 async def oauth_redirect_page(lang: str, status: str) -> str:
     """Return oauth redirect page."""
     if _template == "":
-        await asyncio.get_event_loop().run_in_executor(
+        await asyncio.get_running_loop().run_in_executor(
             None, _load_page_template)
     web_page = _template.replace("LANG_PLACEHOLDER", lang)
     web_page = web_page.replace("STATUS_PLACEHOLDER", status)
